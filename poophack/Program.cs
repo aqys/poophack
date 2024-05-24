@@ -6,7 +6,7 @@ namespace poophack
 {
     class Program : Overlay
     {
-        Swed swed = new Swed("cs2.exe");
+        Swed swed = new Swed("cs2");
         Offsets offsets = new Offsets();
         Entity localPlayer = new Entity();
         List<Entity> entities = new List<Entity>();
