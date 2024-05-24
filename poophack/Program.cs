@@ -19,8 +19,16 @@ namespace poophack
             public int bottom;
         }
 
+        public RECT GetWindowRect(IntPtr hWnd)
+        {
+            RECT rect = new RECT();
+            GetWindowRect(hWnd, out rect);
+            return rect;
+        }
+
         Swed swed = new Swed("cs2");
         Offsets offsets = new Offsets();
+        ImDrawListPtr drawList;
         Entity localPlayer = new Entity();
         List<Entity> entities = new List<Entity>();
         List<Entity> enemyTeam = new List<Entity>();
@@ -45,23 +53,131 @@ namespace poophack
         bool enableTeamBox = false;
         bool enableTeamHealthBar = false;
         bool enableTeamLine = false;
-        bool enabledTeamDot = false;
-        bool enabledTeamDistance = false;
+        bool enableTeamDot = false;
+        bool enableTeamDistance = false;
 
         bool enableEnemyBox = true;
         bool enableEnemyHealthBar = true;
         bool enableEnemyLine = false;
-        bool enabledEnemyDot = false;
-        bool enabledEnemyDistance = false;
+        bool enableEnemyDot = false;
+        bool enableEnemyDistance = false;
 
         protected override void Render()
         {
-            //ImGui.Begin("poophack");
+            DrawMenu();
+            DrawOverlay();
             // render stuff here
+        }
+
+        ViewMatrix ReadMatrix(IntPtr matrixAddress)
+        {
+            var viewMatrix = new ViewMatrix();
+            var floatMatrix = swed.ReadMatrix(matrixAddress);
+
+            viewMatrix.m11 = floatMatrix[0];
+            viewMatrix.m12 = floatMatrix[1];
+            viewMatrix.m13 = floatMatrix[2];
+            viewMatrix.m14 = floatMatrix[3];
+
+            viewMatrix.m21 = floatMatrix[4];
+            viewMatrix.m22 = floatMatrix[5];
+            viewMatrix.m23 = floatMatrix[6];
+            viewMatrix.m24 = floatMatrix[7];
+
+            viewMatrix.m31 = floatMatrix[8];
+            viewMatrix.m32 = floatMatrix[9];
+            viewMatrix.m33 = floatMatrix[10];
+            viewMatrix.m34 = floatMatrix[11];
+
+            viewMatrix.m41 = floatMatrix[12];
+            viewMatrix.m42 = floatMatrix[13];
+            viewMatrix.m43 = floatMatrix[14];
+            viewMatrix.m44 = floatMatrix[15];
+
+            return viewMatrix;
+        }
+
+        Vector2 WorldToScreen(ViewMatrix matrix, Vector3 pos, int width, int height)
+        {
+            Vector2 screenCoordinates = new Vector2();
+
+            float screenW = (matrix.m41 * pos.X) + (matrix.m42 * pos.Y) + (matrix.m43 * pos.Z) + matrix.m44;
+
+            if (screenW < 0.001f)
+            {
+                float screenX = (matrix.m11 * pos.X) + (matrix.m12 * pos.Y) + (matrix.m13 * pos.Z) + matrix.m14;
+
+                float screenY = (matrix.m21 * pos.X) + (matrix.m22 * pos.Y) + (matrix.m23 * pos.Z) + matrix.m24;
+
+                float camX = width / 2;
+                float camY = height / 2;
+
+                float X = camX + (camX * screenX / screenW);
+                float Y = camY - (camY * screenY / screenW);
+
+                screenCoordinates.X = X;
+                screenCoordinates.Y = Y;
+                return screenCoordinates;
+            }
+            else
+            {
+                return new Vector2(-99, -99);
+            }
+        }
+
+        void DrawMenu()
+        {
+            ImGui.Begin("poophack");
+
+            if (ImGui.BeginTabBar("Tabs"))
+            {
+                if (ImGui.BeginTabItem("General"))
+                {
+                    ImGui.Checkbox("Enable ESP", ref enableEsp);
+
+                    ImGui.Checkbox("Team Box", ref enableTeamBox);
+                    ImGui.Checkbox("Team Healthbar", ref enableTeamHealthBar);
+                    ImGui.Checkbox("Team Line", ref enableTeamLine);
+                    ImGui.Checkbox("Team Dot", ref enableTeamDot);
+                    ImGui.Checkbox("Enemy Box", ref enableEnemyBox);
+                    ImGui.Checkbox("Enemy Healthbar", ref enableEnemyHealthBar);
+                    ImGui.Checkbox("Enemy Line", ref enableEnemyLine);
+                    ImGui.Checkbox("Enemy Dot", ref enableEnemyDot);
+
+                    ImGui.EndTabItem();
+                }
+
+                if (ImGui.BeginTabItem("Colors"))
+                {
+                    ImGui.ColorEdit4("Team Color", ref teamColor);
+                    ImGui.ColorEdit4("Enemy Color", ref enemyColor);
+                }
+            }
+            ImGui.EndTabBar();
+        }
+
+        void DrawOverlay()
+        {
+            ImGui.SetNextWindowSize(windowSize);
+            ImGui.SetNextWindowPos(windowLocation);
+            ImGui.Begin("overlay", ImGuiWindowFlags.NoDecoration
+                | ImGuiWindowFlags.NoBackground 
+                | ImGuiWindowFlags.NoBringToFrontOnFocus 
+                | ImGuiWindowFlags.NoMove 
+                | ImGuiWindowFlags.NoInputs 
+                | ImGuiWindowFlags.NoCollapse 
+                | ImGuiWindowFlags.NoScrollWithMouse
+                );
         }
 
         void MainLogic()
         {
+            var window = GetWindowRect(swed.GetProcess().MainWindowHandle);
+            windowLocation = new Vector2(window.left, window.top);
+            windowSize = Vector2.Subtract(new Vector2(window.right, window.bottom), windowLocation);
+            lineOrigin = new Vector2(windowLocation.X * windowLocation.X / 2, window.bottom);
+            windowCenter = new Vector2(lineOrigin.X, window.bottom - windowSize.Y / 2);
+
             client = swed.GetModuleBase("client.dll");
             
             while (true) // always run
@@ -96,6 +212,15 @@ namespace poophack
                 if (!entities.Any(element => element.origin.X == entity.origin.X))
                 {
                     entities.Add(entity);
+
+                    if (entity.teamNum == localPlayer.teamNum)
+                    {
+                        playerTeam.Add(entity);
+                    }
+                    else
+                    {
+                        enemyTeam.Add(entity);
+                    }
                 }
             }
         }
@@ -104,6 +229,7 @@ namespace poophack
         {
             entity.health = swed.ReadInt(entity.address, offsets.health);
             entity.origin = swed.ReadVec(entity.address, offsets.origin);
+            entity.teamNum = swed.ReadInt(entity.address, offsets.teamNum);
         }
 
         static void Main(string[] args)
